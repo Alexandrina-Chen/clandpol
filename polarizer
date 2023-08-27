@@ -3,7 +3,7 @@
 # Agilio Padua <agilio.padua@ens-lyon.fr>
 # Alain Dequidt <alain.dequidt@uca.fr>
 # Kateryna Goloviznina <kateryna.goloviznina@ens-lyon.fr>
-# version 2023/07/12
+# version 2021/04/03
 
 import argparse
 import random
@@ -260,7 +260,7 @@ class Data(object):
                 atom['vy'] = float(tok[2])
                 atom['vz'] = float(tok[3])
 
-    def countH(self, output=False):
+    def countH(self, excludehydrogen, output=False)  :
         '''count H atoms bonded to each atom type'''
 
         if len(self.atomtypes) == 0:
@@ -269,10 +269,10 @@ class Data(object):
         # count for all atoms
         nH = [0] * self.headers['atoms']
         for bd in self.bonds:
-            if bd['itype'][0] in 'Hh':
+            if bd['itype'][0] in 'Hh' and bd['jtype'] not in excludehydrogen:
                 j = bd['j'] - 1
                 nH[j] += 1
-            elif bd['jtype'][0] in 'Hh':
+            elif bd['jtype'][0] in 'Hh' and bd['itype'] not in excludehydrogen:
                 i = bd['i'] - 1
                 nH[i] += 1
         # transfer counts to atom types
@@ -642,7 +642,7 @@ class Data(object):
     def lmpscript(self, drude, outdfile, thole = 2.6, cutoff = 12.0):
         """print lines for input script, including pair_style thole"""
 
-        inpstack = "in-drude.lmp"
+        inpstack = "in-p.lmp"
         pairfile = "pair-drude.lmp"
         
         dfound = False
@@ -680,7 +680,6 @@ class Data(object):
 
             f.write("# convenient atom groups (for shake, thermostats...)\n")
             gatoms = gcores = gdrudes = ""
-            ndrude = 0
             for att in self.atomtypes:
                 if att['dflag'] != 'd':
                     gatoms += " {0}".format(att['id'])
@@ -688,7 +687,6 @@ class Data(object):
                     gcores += " {0}".format(att['id'])
                 if att['dflag'] == 'd':
                     gdrudes += " {0}".format(att['id'])
-                    ndrude += 1
             f.write("group ATOMS type" + gatoms + "\n")
             f.write("group CORES type" + gcores + "\n")
             f.write("group DRUDES type" + gdrudes + "\n\n")
@@ -720,8 +718,10 @@ class Data(object):
             f.write("thermo_style custom step [...] "\
                     "f_TSTAT[1] f_TSTAT[2] f_TSTAT[3]\n\n")
 
+            i = drudetypes.find("D")
+
             f.write("# write Drude particles to dump file\n")
-            f.write("dump_modify ... element ... " + ndrude*" Dp" + "\n\n")
+            f.write("dump_modify ... element ... " + drudetypes[i:] + "\n\n")
 
             f.write("# ATTENTION!\n")
             f.write("#  * read_data may need 'extra/special/per/atom' keyword, "
@@ -745,9 +745,12 @@ fpe0 =  0.000719756                     # (4 Pi eps0) in e^2/(kJ/mol A)
 class Drude(object):
     """specification of drude oscillator types"""
 
-    def __init__(self, drudefile, data, kcalc=False, positive=False, metal=False):
+    def __init__(self, drudefile, data, kcalc=False, positive=False, metal=False,exludehydrogen=[],output=False,excludepolarization=[]):
         self.types = []
         self.alpha_H = 0.323           # PCCP 20(2018)10992
+        self.excludehydrogen=exludehydrogen
+        self.output=output
+        self.excludepolarization=excludepolarization
 
         with open(drudefile, "r") as f:
 
@@ -763,7 +766,7 @@ class Drude(object):
             print('Polarizability of H merged into heavy atoms: {0:.3f} A3'.format(self.alpha_H))
             f.seek(0)
 
-            data.countH()
+            data.countH(self.excludehydrogen,self.output)
             
             for line in f:
                 line = line.strip()
@@ -771,9 +774,11 @@ class Drude(object):
                     continue
                 tok = line.split()
 
-                if tok[0].startswith('H'):
-                    if float(tok[4]) != self.alpha_H:
-                        print(f'warning: different polarizabilities for H, using {self.alpha_H:.3f}')
+                if tok[0].startswith('H') or tok[0] in self.excludepolarization:
+                    if tok[0].startswith('H') and float(tok[4]) != self.alpha_H:
+                        print(f'warning: different polarizabilities for H for {tok[0]}')
+                    if tok[0] in self.excludepolarization:
+                        print(f"warning: not polarize atom type {tok[0]}")
                     continue
 
                 drude = {}
@@ -833,13 +838,17 @@ def main():
     parser.add_argument('-d', '--depolarize', action = 'store_true',
                         help = 'remove Drude dipole polarization from '\
                         'LAMMPS data file')
+    parser.add_argument('-ep', '--excludepolarization', nargs="*",type=str, help = 'exclude the atom types that are not hydrogens from polarization')
+    parser.add_argument('-eh', '--excludehydrogen', nargs="*", type=str, default=[""],help = 'exclude merging hydrogen polarizability to these atom types')
+    parser.add_argument('-ov', '--outputverbose', action = 'store_true', default=False, 
+                        help = 'wheather output verbose information')
     parser.add_argument('infile', help = 'input LAMMPS data file')
     parser.add_argument('outfile', help = 'output LAMMPS data file')
     args = parser.parse_args()
 
     data = Data(args.infile)
     if not args.depolarize:
-        drude = Drude(args.ffdrude, data, args.kcalc, args.positive, args.metal)
+        drude = Drude(args.ffdrude, data, args.kcalc, args.positive, args.metal, args.excludehydrogen,args.outputverbose,args.excludepolarization)
         data.polarize(drude)
         data.lmpscript(drude, args.outfile, args.thole, args.cutoff)
     else:
