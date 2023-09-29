@@ -838,7 +838,7 @@ def main():
     parser.add_argument('-d', '--depolarize', action = 'store_true',
                         help = 'remove Drude dipole polarization from '\
                         'LAMMPS data file')
-    parser.add_argument('-ep', '--excludepolarization', nargs="*",type=str, help = 'exclude the atom types that are not hydrogens from polarization')
+    parser.add_argument('-ep', '--excludepolarization', nargs="*",type=str, default=[""], help = 'exclude the atom types that are not hydrogens from polarization')
     parser.add_argument('-eh', '--excludehydrogen', nargs="*", type=str, default=[""],help = 'exclude merging hydrogen polarizability to these atom types')
     parser.add_argument('-ov', '--outputverbose', action = 'store_true', default=False, 
                         help = 'wheather output verbose information')
