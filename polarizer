@@ -739,18 +739,25 @@ class Data(object):
 
 kcal =  4.184                           # kJ
 eV   = 96.485                           # kJ/mol
-fpe0 =  0.000719756                     # (4 Pi eps0) in e^2/(kJ/mol A)
+fpe0 =   0.0007197587                     # (4 Pi eps0) in e^2/(kJ/mol A)
 
 
 class Drude(object):
     """specification of drude oscillator types"""
 
-    def __init__(self, drudefile, data, kcalc=False, positive=False, metal=False,exludehydrogen=[],output=False,excludepolarization=[]):
+    def __init__(self, drudefile, data, kcalc=False, all_charge='', metal=False,exludehydrogen=[],output=False,excludepolarization=[]):
         self.types = []
         self.alpha_H = 0.323           # PCCP 20(2018)10992
         self.excludehydrogen=exludehydrogen
         self.output=output
         self.excludepolarization=excludepolarization
+        all_positive = False
+        all_negative = False
+        if all_charge == 'positive' or all_charge == 'p':
+            all_positive = True
+        elif all_charge == 'negative' or all_charge == 'n':
+            all_negative = True
+
 
         with open(drudefile, "r") as f:
 
@@ -785,6 +792,10 @@ class Drude(object):
                 drude['type'] = tok[0]
                 drude['dm'] = float(tok[1])
                 dq = float(tok[2])
+                if dq < 0:
+                    positive = False
+                else:
+                    positive = True
                 k = float(tok[3])
                 alpha = float(tok[4])
                 drude['thole'] = float(tok[5])
@@ -801,10 +812,15 @@ class Drude(object):
                 else:
                     dq = (fpe0 * k * alpha)**0.5
 
-                if positive:
+                if all_positive:
                     drude['dq'] = abs(dq)
-                else:
+                elif all_negative:
                     drude['dq'] = -abs(dq)
+                else:
+                    if positive:
+                        drude['dq'] = abs(dq)
+                    else:
+                        drude['dq'] = -abs(dq)
 
                 if metal:
                     drude['k'] = k / (2.0 * eV)
@@ -826,9 +842,10 @@ def main():
                         help = 'Drude force constants calculated from '\
                         'polarizability (default: k from parameter file '\
                         'and q from polarizability)')
-    parser.add_argument('-p', '--positive', action = 'store_true',
-                        help = 'Drude particles with positive charge '\
-                        '(default: negative charge)')
+    parser.add_argument('-ac', '--all_charge', type = str, default = '', choices=['','positive','p','negative','n'], \
+                        help = 'make all Drude particles with positive/negative charge, '\
+                        '([positive/negative] or [p/n]). '\
+                        '(default: \'\', and each Drude particle\'s charge sign depends on its sign of dq in parameter file)')
     parser.add_argument('-t', '--thole', type = float, default = 2.6,
                         help = 'global Thole damping parameter (default: 2.6)')
     parser.add_argument('-c', '--cutoff', type = float, default = 12.0,
@@ -848,7 +865,7 @@ def main():
 
     data = Data(args.infile)
     if not args.depolarize:
-        drude = Drude(args.ffdrude, data, args.kcalc, args.positive, args.metal, args.excludehydrogen,args.outputverbose,args.excludepolarization)
+        drude = Drude(args.ffdrude, data, args.kcalc, args.all_charge.lower(), args.metal, args.excludehydrogen,args.outputverbose,args.excludepolarization)
         data.polarize(drude)
         data.lmpscript(drude, args.outfile, args.thole, args.cutoff)
     else:
